@@ -12,6 +12,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -35,7 +38,7 @@ public class OrderServiceImpl implements OrderService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(OrderServiceImpl.class);
 
-
+    private static final int DEFAULT_PAGE_SIZE = 50;
 
     private String getServiceUrl(String serviceName) {
         return "http://" + serviceName + ":8080"; }
@@ -52,7 +55,7 @@ public class OrderServiceImpl implements OrderService {
         ArrayList<Order> list = orderRepository.findByTravelDateAndTrainNumber(seatRequest.getTravelDate(),
                 seatRequest.getTrainNumber());
         if (list != null && !list.isEmpty()) {
-            Set ticketSet = new HashSet();
+            Set<Ticket> ticketSet = new HashSet<>();
             for (Order tempOrder : list) {
                 ticketSet.add(new Ticket(tempOrder.getSeatNumber(),
                         tempOrder.getFrom(), tempOrder.getTo()));
@@ -62,7 +65,7 @@ public class OrderServiceImpl implements OrderService {
             OrderServiceImpl.LOGGER.info("[getSoldTickets][Left ticket info][info is: {}]", leftTicketInfo.toString());
             return new Response<>(1, success, leftTicketInfo);
         } else {
-            OrderServiceImpl.LOGGER.warn("[getSoldTickets][Seat][Left ticket info is empty][seat from date: {}, train number: {}]",seatRequest.getTravelDate(),seatRequest.getTrainNumber()); //warn级别，获取资源但资源为空
+            OrderServiceImpl.LOGGER.warn("[getSoldTickets][Seat][Left ticket info is empty][seat from date: {}, train number: {}]",seatRequest.getTravelDate(),seatRequest.getTrainNumber());
             return new Response<>(0, "Order is Null.", null);
         }
     }
@@ -71,11 +74,11 @@ public class OrderServiceImpl implements OrderService {
     public Response findOrderById(String id, HttpHeaders headers) {
         Optional<Order> op = orderRepository.findById(id);
         if (!op.isPresent()) {
-            OrderServiceImpl.LOGGER.warn("[findOrderById][Find Order By Id Fail][No content][id: {}] ",id);  //获取资源但资源为空
+            OrderServiceImpl.LOGGER.warn("[findOrderById][Find Order By Id Fail][No content][id: {}] ",id);
             return new Response<>(0, "No Content by this id", null);
         } else {
             Order order = op.get();
-            OrderServiceImpl.LOGGER.warn("[findOrderById][Find Order By Id Success][id: {}] ",id);  //获取资源但资源为空
+            OrderServiceImpl.LOGGER.warn("[findOrderById][Find Order By Id Success][id: {}] ",id);
             return new Response<>(1, success, order);
         }
     }
@@ -83,13 +86,14 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public Response create(Order order, HttpHeaders headers) {
         OrderServiceImpl.LOGGER.info("[create][Create Order][Ready to Create Order]");
-        ArrayList<Order> accountOrders = orderRepository.findByAccountId(order.getAccountId());
-        if (accountOrders.contains(order)) {
+        // Avoid fetching all orders - check for duplicates via ID
+        Optional<Order> existingOrder = orderRepository.findById(order.getId());
+        if (existingOrder.isPresent()) {
             OrderServiceImpl.LOGGER.error("[create][Order Create Fail][Order already exists][OrderId: {}]", order.getId());
             return new Response<>(0, "Order already exist", null);
         } else {
             order.setId(UUID.randomUUID().toString());
-            order=orderRepository.save(order);
+            order = orderRepository.save(order);
             OrderServiceImpl.LOGGER.info("[create][Order Create Success][Order Price][OrderId:{} , Price: {}]",order.getId(),order.getPrice());
             return new Response<>(1, success, order);
         }
@@ -97,7 +101,6 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public Response alterOrder(OrderAlterInfo oai, HttpHeaders headers) {
-
         String oldOrderId = oai.getPreviousOrderId();
         Optional<Order> op = orderRepository.findById(oldOrderId);
         if (!op.isPresent()) {
@@ -121,73 +124,40 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public Response<ArrayList<Order>> queryOrders(OrderInfo qi, String accountId, HttpHeaders headers) {
-        //1.Get all orders of the user
-        ArrayList<Order> list = orderRepository.findByAccountId(accountId);
-        OrderServiceImpl.LOGGER.info("[queryOrders][Step 1][Get Orders Number of Account][size: {}]", list.size());
-        //2.Check is these orders fit the requirement/
+        OrderServiceImpl.LOGGER.info("[queryOrders][Query Orders][Account ID: {}]", accountId);
+        
+        // Use the optimized database query with filters
         if (qi.isEnableStateQuery() || qi.isEnableBoughtDateQuery() || qi.isEnableTravelDateQuery()) {
-            ArrayList<Order> finalList = new ArrayList<>();
-            for (Order tempOrder : list) {
-                boolean statePassFlag = false;
-                boolean boughtDatePassFlag = false;
-                boolean travelDatePassFlag = false;
-                //3.Check order state requirement.
-                if (qi.isEnableStateQuery()) {
-                    if (tempOrder.getStatus() != qi.getState()) {
-                        statePassFlag = false;
-                    } else {
-                        statePassFlag = true;
-                    }
-                } else {
-                    statePassFlag = true;
-                }
-                OrderServiceImpl.LOGGER.debug("[queryOrders][Step 2][Check Status Fits End]");
-                //4.Check order travel date requirement.
-                Date boughtDate = StringUtils.String2Date(tempOrder.getBoughtDate());
-                Date travelDate = StringUtils.String2Date(tempOrder.getTravelDate());
-                Date travelDateEnd = StringUtils.String2Date(qi.getTravelDateEnd());
-                Date boughtDateStart = StringUtils.String2Date(qi.getBoughtDateStart());
-                Date boughtDateEnd = StringUtils.String2Date(qi.getBoughtDateEnd());
-                if (qi.isEnableTravelDateQuery()) {
-                    if (travelDate.before(travelDateEnd) &&
-                            travelDate.after(boughtDateStart)) {
-                        travelDatePassFlag = true;
-                    } else {
-                        travelDatePassFlag = false;
-                    }
-                } else {
-                    travelDatePassFlag = true;
-                }
-                OrderServiceImpl.LOGGER.debug("[queryOrders][Step 2][Check Travel Date End]");
-                //5.Check order bought date requirement.
-                if (qi.isEnableBoughtDateQuery()) {
-                    if (boughtDate.before(boughtDateEnd) &&
-                            boughtDate.after(boughtDateStart)) {
-                        boughtDatePassFlag = true;
-                    } else {
-                        boughtDatePassFlag = false;
-                    }
-                } else {
-                    boughtDatePassFlag = true;
-                }
-                OrderServiceImpl.LOGGER.debug("[queryOrders][Step 2][Check Bought Date End]");
-                //6.check if all requirement fits.
-                if (statePassFlag && boughtDatePassFlag && travelDatePassFlag) {
-                    finalList.add(tempOrder);
-                }
-                OrderServiceImpl.LOGGER.debug("[queryOrders][Step 2][Check All Requirement End]");
-            }
-            OrderServiceImpl.LOGGER.info("[queryOrders][Get order num][size:{}]", finalList.size());
+            Pageable pageable = PageRequest.of(0, DEFAULT_PAGE_SIZE);
+            Page<Order> ordersPage = orderRepository.findByAccountIdAndFilters(
+                accountId,
+                qi.isEnableStateQuery(),
+                qi.getState(),
+                qi.isEnableTravelDateQuery(),
+                qi.getTravelDateStart(),
+                qi.getTravelDateEnd(),
+                qi.isEnableBoughtDateQuery(),
+                qi.getBoughtDateStart(),
+                qi.getBoughtDateEnd(),
+                pageable
+            );
+            
+            ArrayList<Order> finalList = new ArrayList<>(ordersPage.getContent());
+            OrderServiceImpl.LOGGER.info("[queryOrders][Get order num with filters][size:{}]", finalList.size());
             return new Response<>(1, "Get order num", finalList);
         } else {
-            OrderServiceImpl.LOGGER.warn("[queryOrders][Orders don't fit the requirement][loginId: {}]", qi.getLoginId());
+            // If no filters, use the simple paginated query
+            Pageable pageable = PageRequest.of(0, DEFAULT_PAGE_SIZE);
+            Page<Order> ordersPage = orderRepository.findByAccountId(accountId, pageable);
+            ArrayList<Order> list = new ArrayList<>(ordersPage.getContent());
+            OrderServiceImpl.LOGGER.info("[queryOrders][Get all orders for account][size:{}]", list.size());
             return new Response<>(1, "Get order num", list);
         }
     }
 
     @Override
     public Response queryOrdersForRefresh(OrderInfo qi, String accountId, HttpHeaders headers) {
-        ArrayList<Order> orders =   queryOrders(qi, accountId, headers).getData();
+        ArrayList<Order> orders = queryOrders(qi, accountId, headers).getData();
         ArrayList<String> stationIds = new ArrayList<>();
         for (Order order : orders) {
             stationIds.add(order.getFrom());
@@ -203,9 +173,8 @@ public class OrderServiceImpl implements OrderService {
     }
 
     public List<String> queryForStationId(List<String> ids, HttpHeaders headers) {
-
         HttpEntity requestEntity = new HttpEntity(ids, null);
-        String station_service_url=getServiceUrl("ts-station-service");
+        String station_service_url = getServiceUrl("ts-station-service");
         ResponseEntity<Response<List<String>>> re = restTemplate.exchange(
                 station_service_url + "/api/v1/stationservice/stations/namelist",
                 HttpMethod.POST,
@@ -262,35 +231,54 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public Response queryAlreadySoldOrders(Date travelDate, String trainNumber, HttpHeaders headers) {
-        ArrayList<Order> orders = orderRepository.findByTravelDateAndTrainNumber(StringUtils.Date2String(travelDate), trainNumber);
+        Pageable pageable = PageRequest.of(0, DEFAULT_PAGE_SIZE);
+        Page<Order> ordersPage = orderRepository.findByTravelDateAndTrainNumber(
+                StringUtils.Date2String(travelDate), 
+                trainNumber, 
+                pageable);
+        List<Order> orders = ordersPage.getContent();
+        
         SoldTicket cstr = new SoldTicket();
         cstr.setTravelDate(travelDate);
         cstr.setTrainNumber(trainNumber);
         OrderServiceImpl.LOGGER.info("[queryAlreadySoldOrders][Calculate Sold Ticket][Get Orders Number: {}]", orders.size());
+        
         for (Order order : orders) {
             if (order.getStatus() >= OrderStatus.CHANGE.getCode()) {
                 continue;
             }
-            if (order.getSeatClass() == SeatClass.NONE.getCode()) {
-                cstr.setNoSeat(cstr.getNoSeat() + 1);
-            } else if (order.getSeatClass() == SeatClass.BUSINESS.getCode()) {
-                cstr.setBusinessSeat(cstr.getBusinessSeat() + 1);
-            } else if (order.getSeatClass() == SeatClass.FIRSTCLASS.getCode()) {
-                cstr.setFirstClassSeat(cstr.getFirstClassSeat() + 1);
-            } else if (order.getSeatClass() == SeatClass.SECONDCLASS.getCode()) {
-                cstr.setSecondClassSeat(cstr.getSecondClassSeat() + 1);
-            } else if (order.getSeatClass() == SeatClass.HARDSEAT.getCode()) {
-                cstr.setHardSeat(cstr.getHardSeat() + 1);
-            } else if (order.getSeatClass() == SeatClass.SOFTSEAT.getCode()) {
-                cstr.setSoftSeat(cstr.getSoftSeat() + 1);
-            } else if (order.getSeatClass() == SeatClass.HARDBED.getCode()) {
-                cstr.setHardBed(cstr.getHardBed() + 1);
-            } else if (order.getSeatClass() == SeatClass.SOFTBED.getCode()) {
-                cstr.setSoftBed(cstr.getSoftBed() + 1);
-            } else if (order.getSeatClass() == SeatClass.HIGHSOFTBED.getCode()) {
-                cstr.setHighSoftBed(cstr.getHighSoftBed() + 1);
-            } else {
-                OrderServiceImpl.LOGGER.info("[queryAlreadySoldOrders][Calculate Sold Tickets][Seat class not exists][Order ID: {}]", order.getId());
+            
+            switch (order.getSeatClass()) {
+                case 0: // SeatClass.NONE.getCode()
+                    cstr.setNoSeat(cstr.getNoSeat() + 1);
+                    break;
+                case 1: // SeatClass.BUSINESS.getCode()
+                    cstr.setBusinessSeat(cstr.getBusinessSeat() + 1);
+                    break;
+                case 2: // SeatClass.FIRSTCLASS.getCode()
+                    cstr.setFirstClassSeat(cstr.getFirstClassSeat() + 1);
+                    break;
+                case 3: // SeatClass.SECONDCLASS.getCode()
+                    cstr.setSecondClassSeat(cstr.getSecondClassSeat() + 1);
+                    break;
+                case 4: // SeatClass.HARDSEAT.getCode()
+                    cstr.setHardSeat(cstr.getHardSeat() + 1);
+                    break;
+                case 5: // SeatClass.SOFTSEAT.getCode()
+                    cstr.setSoftSeat(cstr.getSoftSeat() + 1);
+                    break;
+                case 6: // SeatClass.HARDBED.getCode()
+                    cstr.setHardBed(cstr.getHardBed() + 1);
+                    break;
+                case 7: // SeatClass.SOFTBED.getCode()
+                    cstr.setSoftBed(cstr.getSoftBed() + 1);
+                    break;
+                case 8: // SeatClass.HIGHSOFTBED.getCode()
+                    cstr.setHighSoftBed(cstr.getHighSoftBed() + 1);
+                    break;
+                default:
+                    OrderServiceImpl.LOGGER.info("[queryAlreadySoldOrders][Calculate Sold Tickets][Seat class not exists][Order ID: {}]", order.getId());
+                    break;
             }
         }
         return new Response<>(1, success, cstr);
@@ -298,12 +286,16 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public Response getAllOrders(HttpHeaders headers) {
-        ArrayList<Order> orders = orderRepository.findAll();
+        // Use pagination for getting all orders
+        Pageable pageable = PageRequest.of(0, DEFAULT_PAGE_SIZE);
+        Page<Order> ordersPage = orderRepository.findAll(pageable);
+        List<Order> orders = ordersPage.getContent();
+        
         if (orders != null && !orders.isEmpty()) {
-            OrderServiceImpl.LOGGER.warn("[getAllOrders][Find all orders Success][size:{}]",orders.size());
-            return new Response<>(1, "Success.", orders);
+            OrderServiceImpl.LOGGER.warn("[getAllOrders][Find all orders Success][size:{}]", orders.size());
+            return new Response<>(1, "Success.", new ArrayList<>(orders));
         } else {
-            OrderServiceImpl.LOGGER.warn("[getAllOrders][Find all orders Fail][{}]","No content");
+            OrderServiceImpl.LOGGER.warn("[getAllOrders][Find all orders Fail][{}]", "No content");
             return new Response<>(0, "No Content.", null);
         }
     }
@@ -379,13 +371,19 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public Response checkSecurityAboutOrder(Date dateFrom, String accountId, HttpHeaders headers) {
         OrderSecurity result = new OrderSecurity();
-        ArrayList<Order> orders = orderRepository.findByAccountId(accountId);
+        
+        // Use pagination for getting account orders
+        Pageable pageable = PageRequest.of(0, DEFAULT_PAGE_SIZE);
+        Page<Order> ordersPage = orderRepository.findByAccountId(accountId, pageable);
+        List<Order> orders = ordersPage.getContent();
+        
         int countOrderInOneHour = 0;
         int countTotalValidOrder = 0;
         Calendar ca = Calendar.getInstance();
         ca.setTime(dateFrom);
         ca.add(Calendar.HOUR_OF_DAY, -1);
         dateFrom = ca.getTime();
+        
         for (Order order : orders) {
             if (order.getStatus() == OrderStatus.NOTPAID.getCode() ||
                     order.getStatus() == OrderStatus.PAID.getCode() ||
@@ -421,8 +419,10 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public Response addNewOrder(Order order, HttpHeaders headers) {
         OrderServiceImpl.LOGGER.info("[addNewOrder][Admin Add Order][Ready to Add Order]");
-        ArrayList<Order> accountOrders = orderRepository.findByAccountId(order.getAccountId());
-        if (accountOrders.contains(order)) {
+        
+        // Just check if the ID already exists, don't fetch all orders
+        Optional<Order> existingOrder = orderRepository.findById(order.getId());
+        if (existingOrder.isPresent()) {
             OrderServiceImpl.LOGGER.error("[addNewOrder][Admin Add Order Fail][Order already exists][OrderId: {}]",order.getId());
             return new Response<>(0, "Order already exist", null);
         } else {

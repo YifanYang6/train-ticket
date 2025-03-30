@@ -1,0 +1,72 @@
+# ansible-playbook chaos-driver-install.yaml -i kube_inventory.yaml -K
+- hosts: test
+  become: yes
+  tasks:
+    - name: Detect OS family
+      set_fact:
+        is_debian: "{{ ansible_os_family == 'Debian' }}"
+        is_redhat: "{{ ansible_os_family == 'RedHat' }}"
+    # Install appropriate kernel headers based on OS type
+    - name: Install dependencies for Debian/Ubuntu
+      apt:
+        name:
+          - make
+          - "linux-headers-{{ ansible_kernel }}"
+        state: present
+        update_cache: yes
+      when: is_debian | bool
+
+    - name: Install dependencies for RedHat/CentOS
+      yum:
+        name:
+          - make 
+          - "kernel-devel-{{ ansible_kernel }}"
+        state: present
+      when: is_redhat | bool
+
+    # Download and extract chaos-driver source
+    - name: Download chaos-driver
+      get_url:
+        url: https://github.com/chaos-mesh/chaos-driver/archive/refs/tags/v0.2.1.tar.gz
+        dest: /tmp/chaos-driver-v0.2.1.tar.gz
+
+    - name: Extract archive
+      unarchive:
+        src: /tmp/chaos-driver-v0.2.1.tar.gz
+        dest: /tmp
+        remote_src: yes
+
+    # Compile the module
+    - name: Build the module
+      command: make driver/chaos_driver.ko
+      args:
+        chdir: /tmp/chaos-driver-0.2.1
+
+    # Load the module
+    - name: Load the module
+      command: insmod ./driver/chaos_driver.ko
+      args:
+        chdir: /tmp/chaos-driver-0.2.1
+      ignore_errors: yes
+
+    # Make the module persistent across reboots
+    - name: Create directory if needed
+      file:
+        path: "/lib/modules/{{ ansible_kernel }}/kernel/drivers"
+        state: directory
+        mode: '0755'
+
+    - name: Copy module to kernel directory
+      copy:
+        src: /tmp/chaos-driver-v0.2.1/driver/chaos_driver.ko
+        dest: "/lib/modules/{{ ansible_kernel }}/kernel/drivers/"
+        remote_src: yes
+
+    - name: Update module dependencies
+      command: depmod -a
+
+    - name: Add module to load at boot
+      lineinfile:
+        path: /etc/modules
+        line: chaos_driver
+        create: yes

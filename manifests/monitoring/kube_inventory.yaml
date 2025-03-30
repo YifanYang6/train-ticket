@@ -1,0 +1,14 @@
+master:
+  hosts:
+    10.10.10.220:
+
+workers:
+  hosts:
+    10.10.10.22[1:6]:
+test:
+  hosts:
+    10.10.10.22[1:2]:
+k8s_nodes:
+  children:
+    master:
+    workers:

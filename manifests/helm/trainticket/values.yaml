@@ -18,7 +18,7 @@ autoscaling:
 
 opentelemetry:
   enabled: true
-  image: autoinstrumentation-java:elastic
+  image: autoinstrumentation-java:pyroscope
 
 # Pyroscope profiling configuration
 pyroscope:

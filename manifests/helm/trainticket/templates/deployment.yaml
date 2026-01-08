@@ -23,7 +23,7 @@ spec:
       initContainers:
         - name: init-otel-agent
           image: "{{ $root.Values.global.image.repository }}/{{ $root.Values.opentelemetry.image }}"
-          command: ['sh', '-c', 'cp -r /javaagent.jar /otel-agent/otel-agent.jar']
+          command: ['sh', '-c', 'cp /javaagent.jar /otel-agent/otel-agent.jar && cp /pyroscope.jar /otel-agent/pyroscope.jar && cp /pyroscope-otel.jar /otel-agent/pyroscope-otel.jar']
           volumeMounts:
             - name: otel-agent
               mountPath: /otel-agent

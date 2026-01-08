@@ -20,6 +20,20 @@ opentelemetry:
   enabled: true
   image: autoinstrumentation-java:elastic
 
+# Pyroscope profiling configuration
+pyroscope:
+  enabled: true
+  serverAddress: "http://pyroscope.monitoring.svc.cluster.local:4040"
+  profilingInterval: "10ms"
+  profilerEvent: "itimer"
+  profilerLock: "10ms"
+  profilerAlloc: "512k"
+  uploadInterval: "15s"
+  logLevel: "info"
+  addProfileUrl: "false"
+  addProfileBaselineUrl: "false"
+  startProfiling: "true"
+
 services:
   tsAdminBasicInfoService:
     name: ts-admin-basic-info-service

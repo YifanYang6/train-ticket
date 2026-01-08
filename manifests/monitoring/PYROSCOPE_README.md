@@ -1,74 +1,83 @@
-# Java Profiling with Grafana Pyroscope and Alloy
+# Java Profiling with Grafana Pyroscope
 
-This directory contains the necessary components for continuous Java profiling using Grafana Pyroscope and Grafana Alloy.
+This directory contains the configuration for continuous Java profiling using Grafana Pyroscope.
 
 ## Overview
 
-The profiling setup includes:
+The profiling setup uses:
 
-1. **Pyroscope**: A continuous profiling backend for storing and querying profiling data
-2. **Grafana Alloy**: Auto-instrumentation agent that discovers Java processes and profiles them using async-profiler
-3. **Grafana Integration**: Datasource provisioning for viewing profiling data in Grafana
-
-## Components
-
-### Pyroscope Deployment (`pyroscope.yaml`)
-
-Deploys Pyroscope as a single replica deployment with service exposure on port 4040.
-
-### Grafana Alloy DaemonSet (`grafana-alloy.yaml`)
-
-Deploys Grafana Alloy as a DaemonSet with:
-- **RBAC**: ClusterRole and bindings for pod discovery
-- **Security Context**: Privileged access for attaching to Java processes
-- **Configuration**: Auto-discovery and profiling of Java processes
-
-Key features:
-- Discovers all Kubernetes pods
-- Identifies Java processes automatically
-- Profiles CPU, memory allocations, and locks
-- Sends profiling data to Pyroscope
-
-### Grafana Provisioning (`grafana-pyroscope-provisioning.yaml`)
-
-ConfigMap for provisioning Pyroscope as a datasource in Grafana.
+1. **Pyroscope**: Official Helm chart for continuous profiling backend
+2. **Push-based Profiling**: Java agents in train-ticket services send profiling data to Pyroscope
+3. **Optional Alloy**: Can be enabled for auto-discovery and pull-based profiling
 
 ## Installation
 
-### Quick Start
+### Quick Start (Recommended)
 
 ```bash
 cd manifests/monitoring
 ./install_pyroscope.sh
 ```
 
-### Manual Installation
+This script will:
+- Add the Grafana Helm repository
+- Install Pyroscope using the official Helm chart
+- Configure it for push-based profiling from Java services
 
-1. Create the monitoring namespace:
+### Manual Installation with Helm
+
+1. Add the Grafana Helm repository:
+   ```bash
+   helm repo add grafana https://grafana.github.io/helm-charts
+   helm repo update
+   ```
+
+2. Create the monitoring namespace:
    ```bash
    kubectl create namespace monitoring
    ```
 
-2. Deploy Pyroscope:
+3. Install Pyroscope:
    ```bash
-   kubectl apply -f pyroscope.yaml -n monitoring
+   helm install pyroscope grafana/pyroscope \
+     --namespace monitoring \
+     --values pyroscope-values.yaml
    ```
 
-3. Deploy Grafana Alloy:
-   ```bash
-   kubectl apply -f grafana-alloy.yaml
-   ```
+### Using Official Helm Chart
 
-4. Apply Grafana provisioning:
-   ```bash
-   kubectl apply -f grafana-pyroscope-provisioning.yaml
-   ```
+We now use the official Pyroscope Helm chart from Grafana:
+- **Repository**: https://github.com/grafana/pyroscope/tree/main/operations/pyroscope/helm/pyroscope
+- **Chart**: `grafana/pyroscope`
+- **Values**: See `pyroscope-values.yaml` for our configuration
 
 ## Configuration
 
-### Helm Values
+### Pyroscope Values (`pyroscope-values.yaml`)
 
-The following configuration has been added to `values.yaml`:
+Key configuration options:
+
+```yaml
+pyroscope:
+  replicaCount: 1          # Single instance for simple deployment
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 2Gi
+      cpu: 1000m
+  service:
+    type: ClusterIP
+    port: 4040
+
+alloy:
+  enabled: false           # Disabled by default (using push-based profiling)
+```
+
+### Train-Ticket Helm Values
+
+The following configuration has been added to `manifests/helm/trainticket/values.yaml`:
 
 ```yaml
 pyroscope:
@@ -103,9 +112,9 @@ When Pyroscope is enabled in Helm, the following environment variables are autom
 ### Java Agent Configuration
 
 The Java agents are configured with:
-- `-javaagent:/otel-agent/pyroscope.jar`: Pyroscope Java agent
+- `-javaagent:/otel-agent/pyroscope.jar`: Pyroscope Java agent v2.1.2
 - `-javaagent:/otel-agent/otel-agent.jar`: OpenTelemetry Java agent v2.23.0
-- Extension: `/otel-agent/pyroscope-otel.jar`: Pyroscope-OTEL integration
+- Extension: `/otel-agent/pyroscope-otel.jar`: Pyroscope-OTEL integration v1.0.4
 
 ## Accessing Profiling Data
 
@@ -119,111 +128,165 @@ Then open http://localhost:4040 in your browser.
 
 ### Via Grafana
 
-If you have Grafana deployed with the provisioning ConfigMap:
+You can add Pyroscope as a datasource in Grafana:
 
 1. Open Grafana
-2. Navigate to Explore
-3. Select "Pyroscope" as the datasource
-4. Browse profiling data using the Profiles Explorer
+2. Navigate to Configuration > Data Sources
+3. Add Pyroscope datasource with URL: `http://pyroscope.monitoring.svc.cluster.local:4040`
+4. Navigate to Explore and select "Pyroscope" datasource
+5. Browse profiling data using the Profiles Explorer
 
 ## Monitoring
-
-### Check Grafana Alloy Status
-
-```bash
-# View logs
-kubectl logs -n monitoring -l app=grafana-alloy -f
-
-# Check DaemonSet status
-kubectl get daemonset -n monitoring grafana-alloy
-
-# Check discovered targets
-kubectl port-forward -n monitoring ds/grafana-alloy 12345:12345
-# Open http://localhost:12345 for Alloy UI
-```
 
 ### Check Pyroscope Status
 
 ```bash
+# Check Helm release
+helm list -n monitoring
+
 # Check deployment status
-kubectl get deployment -n monitoring pyroscope
+kubectl get pods -n monitoring -l app.kubernetes.io/name=pyroscope
 
 # View logs
-kubectl logs -n monitoring -l app=pyroscope -f
+kubectl logs -n monitoring -l app.kubernetes.io/name=pyroscope -f
+```
+
+### Upgrade Pyroscope
+
+```bash
+helm upgrade pyroscope grafana/pyroscope \
+  --namespace monitoring \
+  --values pyroscope-values.yaml
 ```
 
 ## Profiling Capabilities
 
-Grafana Alloy profiles the following:
+The Java services profile the following:
 
-1. **CPU**: Using itimer event at 10ms intervals
+1. **CPU Time**: Using itimer event at 10ms intervals
 2. **Memory Allocations**: Objects allocated larger than 512KB
 3. **Lock Contention**: Lock waits longer than 10ms
 
 ## Architecture
 
+### Push-Based Profiling (Default)
+
 ```
 ┌─────────────────┐
 │ Java Services   │
 │  (Train Ticket) │
+│  - Pyroscope    │
+│    Java Agent   │
+└────────┬────────┘
+         │ Push profiles
+         │ every 15s
+         ↓
+    ┌────────────┐
+    │ Pyroscope  │
+    │  (Helm)    │
+    └────┬───────┘
+         │
+         ↓
+    ┌────────────┐
+    │  Grafana   │
+    │  (Viewing) │
+    └────────────┘
+```
+
+### Optional: Pull-Based with Alloy
+
+If you enable Alloy in `pyroscope-values.yaml`:
+
+```
+┌─────────────────┐
+│ Java Services   │
 └────────┬────────┘
          │
     ┌────▼────────────────┐
     │  Grafana Alloy      │
-    │  (DaemonSet)        │
-    │  - Process Discovery│
-    │  - Auto-profiling   │
+    │  (Auto-discovery)   │
     └────────┬────────────┘
              │
         ┌────▼──────┐
         │ Pyroscope │
-        │  (Storage)│
         └────┬──────┘
              │
         ┌────▼────────┐
         │   Grafana   │
-        │  (Viewing)  │
         └─────────────┘
 ```
 
 ## Troubleshooting
 
-### Alloy not discovering Java processes
-
-1. Check that Alloy has the required RBAC permissions:
-   ```bash
-   kubectl get clusterrolebinding grafana-alloy-binding
-   ```
-
-2. Verify Alloy is running with privileged security context:
-   ```bash
-   kubectl get pod -n monitoring -l app=grafana-alloy -o yaml | grep privileged
-   ```
-
-3. Check Alloy logs for discovery issues:
-   ```bash
-   kubectl logs -n monitoring -l app=grafana-alloy | grep discovery
-   ```
-
 ### Profiling data not appearing
 
-1. Verify Pyroscope is accessible:
+1. Verify Pyroscope is running:
    ```bash
-   kubectl exec -n monitoring -it deployment/grafana-alloy -- wget -O- http://pyroscope.monitoring.svc.cluster.local:4040/healthz
+   kubectl get pods -n monitoring -l app.kubernetes.io/name=pyroscope
    ```
 
-2. Check Java application environment variables:
+2. Check Pyroscope logs:
    ```bash
-   kubectl exec -it <java-pod> -- env | grep PYROSCOPE
+   kubectl logs -n monitoring -l app.kubernetes.io/name=pyroscope -f
    ```
 
-3. Verify Java agents are loaded:
+3. Verify Pyroscope is accessible from train-ticket namespace:
    ```bash
-   kubectl logs <java-pod> | grep javaagent
+   kubectl run -it --rm debug --image=nicolaka/netshoot --restart=Never -n train-ticket -- \
+     curl http://pyroscope.monitoring.svc.cluster.local:4040/healthz
    ```
+
+4. Check Java application environment variables:
+   ```bash
+   kubectl exec -it -n train-ticket <java-pod> -- env | grep PYROSCOPE
+   ```
+
+5. Verify Java agents are loaded:
+   ```bash
+   kubectl logs -n train-ticket <java-pod> | grep javaagent
+   ```
+
+### Helm installation issues
+
+1. Check Helm release status:
+   ```bash
+   helm list -n monitoring
+   helm status pyroscope -n monitoring
+   ```
+
+2. View Helm values:
+   ```bash
+   helm get values pyroscope -n monitoring
+   ```
+
+3. Uninstall and reinstall if needed:
+   ```bash
+   helm uninstall pyroscope -n monitoring
+   ./install_pyroscope.sh
+   ```
+
+## Enabling Alloy (Optional)
+
+To enable Grafana Alloy for auto-discovery and pull-based profiling:
+
+1. Edit `pyroscope-values.yaml`:
+   ```yaml
+   alloy:
+     enabled: true
+   ```
+
+2. Upgrade the Helm release:
+   ```bash
+   helm upgrade pyroscope grafana/pyroscope \
+     --namespace monitoring \
+     --values pyroscope-values.yaml
+   ```
+
+Note: Alloy requires privileged security context and may not work in all cluster configurations.
 
 ## References
 
+- [Pyroscope Official Helm Chart](https://github.com/grafana/pyroscope/tree/main/operations/pyroscope/helm/pyroscope)
 - [Grafana Pyroscope Documentation](https://grafana.com/docs/pyroscope/latest/)
 - [Grafana Alloy Java Profiling](https://grafana.com/docs/pyroscope/latest/configure-client/grafana-alloy/java/)
 - [OpenTelemetry Java Instrumentation](https://github.com/open-telemetry/opentelemetry-java-instrumentation)

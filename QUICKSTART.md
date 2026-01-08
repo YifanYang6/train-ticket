@@ -3,25 +3,24 @@
 ## What's Been Added
 
 This implementation adds continuous profiling to all Java services in the train-ticket system using:
-- **Pyroscope**: Profiling data storage and querying
-- **Grafana Alloy**: Auto-instrumentation agent for discovering and profiling Java processes
+- **Pyroscope**: Official Helm chart for profiling data storage and querying
+- **Push-based Profiling**: Java agents automatically send profiling data to Pyroscope
 - **OpenTelemetry Java Agent v2.23.0**: Distributed tracing
 - **Pyroscope Java Agent v2.1.2**: Continuous profiling
 - **Pyroscope OTEL Extension v1.0.4**: Correlation between traces and profiles
 
 ## Quick Installation
 
-### 1. Install Pyroscope Components on Kubernetes
+### 1. Install Pyroscope on Kubernetes
 
 ```bash
 cd manifests/monitoring
 ./install_pyroscope.sh
 ```
 
-This installs:
+This uses the official Grafana Helm chart to install:
 - Pyroscope deployment in `monitoring` namespace
-- Grafana Alloy DaemonSet for auto-instrumentation
-- RBAC permissions for pod discovery
+- Service exposed at `http://pyroscope.monitoring.svc.cluster.local:4040`
 
 ### 2. Rebuild the Java Agent Image
 
@@ -46,11 +45,10 @@ helm upgrade --install trainticket . --namespace train-ticket --create-namespace
 
 Once deployed:
 
-1. **Grafana Alloy** runs as a DaemonSet on each node
-2. It **discovers** all Java processes in Kubernetes pods
-3. It **automatically profiles** CPU, memory allocations, and lock contention
-4. Profiling data is sent to **Pyroscope** every 15 seconds
-5. You can view the data in the **Pyroscope UI** or **Grafana**
+1. **Java services** start with profiling agents loaded
+2. They **automatically profile** CPU, memory allocations, and lock contention
+3. Profiling data is sent to **Pyroscope** every 15 seconds
+4. You can view the data in the **Pyroscope UI** or **Grafana**
 
 ## Access Profiling Data
 
@@ -62,28 +60,48 @@ kubectl port-forward -n monitoring svc/pyroscope 4040:4040
 
 Then open http://localhost:4040 in your browser.
 
-### Option 2: Grafana (if configured with provisioning)
+### Option 2: Grafana
 
+Add Pyroscope as a datasource in Grafana:
 1. Open Grafana
-2. Go to **Explore**
-3. Select **Pyroscope** datasource
-4. Browse profiles by service, time range, and profile type
+2. Go to **Configuration > Data Sources**
+3. Add Pyroscope datasource with URL: `http://pyroscope.monitoring.svc.cluster.local:4040`
+4. Navigate to **Explore** and select Pyroscope datasource
+5. Browse profiles by service, time range, and profile type
 
 ## Configuration
 
-### Enable/Disable Profiling
+### Pyroscope Helm Chart Configuration
+
+Edit `manifests/monitoring/pyroscope-values.yaml` to customize Pyroscope deployment:
+
+```yaml
+pyroscope:
+  replicaCount: 1
+  resources:
+    limits:
+      memory: 2Gi
+      cpu: 1000m
+  persistence:
+    enabled: false  # Set to true for production
+    size: 10Gi
+```
+
+After changing values, upgrade Pyroscope:
+
+```bash
+helm upgrade pyroscope grafana/pyroscope \
+  --namespace monitoring \
+  --values manifests/monitoring/pyroscope-values.yaml
+```
+
+### Train-Ticket Profiling Configuration
 
 Edit `manifests/helm/trainticket/values.yaml`:
 
 ```yaml
 pyroscope:
   enabled: true  # Set to false to disable profiling
-```
-
-### Adjust Profiling Parameters
-
-```yaml
-pyroscope:
   profilingInterval: "10ms"    # How often to sample (lower = more detail, more overhead)
   profilerAlloc: "512k"        # Memory allocation threshold
   profilerLock: "10ms"         # Lock contention threshold
@@ -105,13 +123,11 @@ helm upgrade trainticket manifests/helm/trainticket --namespace train-ticket
 
 ## Verify It's Working
 
-### Check Grafana Alloy is discovering processes
+### Check Pyroscope is running
 
 ```bash
-kubectl logs -n monitoring -l app=grafana-alloy -f
+kubectl get pods -n monitoring -l app.kubernetes.io/name=pyroscope
 ```
-
-Look for messages about discovered Java processes.
 
 ### Check a Java service has profiling enabled
 
@@ -140,17 +156,37 @@ Open http://localhost:4040 and you should see services listed.
 
 1. Check Pyroscope is running:
    ```bash
-   kubectl get pods -n monitoring -l app=pyroscope
+   kubectl get pods -n monitoring -l app.kubernetes.io/name=pyroscope
    ```
 
-2. Check Alloy logs for errors:
+2. Check Pyroscope logs:
    ```bash
-   kubectl logs -n monitoring -l app=grafana-alloy -f
+   kubectl logs -n monitoring -l app.kubernetes.io/name=pyroscope -f
    ```
 
 3. Verify Java services can reach Pyroscope:
    ```bash
    kubectl exec -n train-ticket -it <pod-name> -- curl http://pyroscope.monitoring.svc.cluster.local:4040/healthz
+   ```
+
+4. Check Java agent logs in service pods:
+   ```bash
+   kubectl logs -n train-ticket <pod-name> | grep -i pyroscope
+   ```
+
+### Helm installation issues
+
+1. Check Helm release:
+   ```bash
+   helm list -n monitoring
+   helm status pyroscope -n monitoring
+   ```
+
+2. Reinstall if needed:
+   ```bash
+   helm uninstall pyroscope -n monitoring
+   cd manifests/monitoring
+   ./install_pyroscope.sh
    ```
 
 ### High CPU/memory usage

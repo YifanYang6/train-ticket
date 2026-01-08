@@ -1,0 +1,73 @@
+# Pyroscope Helm Chart Values
+# Reference: https://github.com/grafana/pyroscope/tree/main/operations/pyroscope/helm/pyroscope
+
+# Pyroscope server configuration
+pyroscope:
+  # Use single-binary deployment mode (simpler for getting started)
+  replicaCount: 1
+  
+  # Resource limits
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 2Gi
+      cpu: 1000m
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 4040
+  
+  # Enable persistence for production use
+  persistence:
+    enabled: false
+    size: 10Gi
+  
+  # Extra configuration for debugging
+  extraArgs:
+    "log.level": "info"
+
+# Disable Alloy by default (using push-based profiling with Java agents)
+# Enable this if you want auto-discovery and pull-based profiling
+alloy:
+  enabled: false
+  controller:
+    type: "daemonset"  # Use DaemonSet for node-level process discovery
+    replicas: 1
+  alloy:
+    stabilityLevel: "public-preview"
+    configMap:
+      create: true
+    clustering:
+      enabled: true
+    # Security context for process discovery
+    securityContext:
+      privileged: true
+      runAsUser: 0
+      runAsGroup: 0
+      capabilities:
+        add:
+          - SYS_PTRACE
+          - SYS_ADMIN
+          - SYS_RESOURCE
+          - PERFMON
+    # Enable hostPID for cross-pod process discovery
+    extraPorts:
+      - name: "http-metrics"
+        port: 12345
+        targetPort: 12345
+        protocol: "TCP"
+
+# Disable agent (we use alloy instead)
+agent:
+  enabled: false
+
+# Disable minio (using local storage for now)
+minio:
+  enabled: false
+
+# Service monitor for Prometheus integration (optional)
+serviceMonitor:
+  enabled: false

@@ -29,7 +29,7 @@ pyroscope:
     storage:
       backend: s3
       s3:
-        endpoint: "minio.monitoring.svc.cluster.local:9000"
+        endpoint: "pyroscope-minio.monitoring.svc.cluster.local:9000"
         bucket_name: "grafana-pyroscope-data"
         access_key_id: "grafana-pyroscope"
         secret_access_key: "supersecret"

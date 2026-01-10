@@ -74,7 +74,7 @@ pyroscope:
     storage:
       backend: s3          # Using MinIO object storage
       s3:
-        endpoint: "minio.monitoring.svc.cluster.local:9000"
+        endpoint: "pyroscope-minio.monitoring.svc.cluster.local:9000"
         bucket_name: "grafana-pyroscope-data"
 
 minio:

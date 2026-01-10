@@ -20,10 +20,20 @@ pyroscope:
     type: ClusterIP
     port: 4040
   
-  # Enable persistence for production use
+  # Disable local persistence (using MinIO object storage instead)
   persistence:
     enabled: false
-    size: 10Gi
+  
+  # Configure object storage with MinIO
+  structuredConfig:
+    storage:
+      backend: s3
+      s3:
+        endpoint: "minio.monitoring.svc.cluster.local:9000"
+        bucket_name: "grafana-pyroscope-data"
+        access_key_id: "grafana-pyroscope"
+        secret_access_key: "supersecret"
+        insecure: true
   
   # Extra configuration for debugging
   extraArgs:
@@ -64,9 +74,29 @@ alloy:
 agent:
   enabled: false
 
-# Disable minio (using local storage for now)
+# Enable MinIO for object storage
 minio:
-  enabled: false
+  enabled: true
+  replicas: 1
+  # MinIO persistence configuration
+  persistence:
+    size: 20Gi
+  # Credentials for MinIO (should match Pyroscope S3 config)
+  rootUser: "grafana-pyroscope"
+  rootPassword: "supersecret"
+  # Resource limits for MinIO
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  # MinIO buckets configuration
+  buckets:
+    - name: grafana-pyroscope-data
+      policy: none
+      purge: false
 
 # Service monitor for Prometheus integration (optional)
 serviceMonitor:

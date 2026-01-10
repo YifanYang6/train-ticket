@@ -4,6 +4,7 @@
 
 This implementation adds continuous profiling to all Java services in the train-ticket system using:
 - **Pyroscope**: Official Helm chart for profiling data storage and querying
+- **MinIO**: Object storage for persistent profile data (20Gi)
 - **Push-based Profiling**: Java agents automatically send profiling data to Pyroscope
 - **OpenTelemetry Java Agent v2.23.0**: Distributed tracing
 - **Pyroscope Java Agent v2.1.2**: Continuous profiling
@@ -20,6 +21,7 @@ cd manifests/monitoring
 
 This uses the official Grafana Helm chart to install:
 - Pyroscope deployment in `monitoring` namespace
+- MinIO object storage for persistent profiling data
 - Service exposed at `http://pyroscope.monitoring.svc.cluster.local:4040`
 
 ### 2. Rebuild the Java Agent Image

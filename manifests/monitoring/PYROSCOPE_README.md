@@ -70,6 +70,17 @@ pyroscope:
   service:
     type: ClusterIP
     port: 4040
+  structuredConfig:
+    storage:
+      backend: s3          # Using MinIO object storage
+      s3:
+        endpoint: "minio.monitoring.svc.cluster.local:9000"
+        bucket_name: "grafana-pyroscope-data"
+
+minio:
+  enabled: true            # MinIO enabled for persistent object storage
+  persistence:
+    size: 20Gi
 
 alloy:
   enabled: false           # Disabled by default (using push-based profiling)
@@ -169,7 +180,7 @@ The Java services profile the following:
 
 ## Architecture
 
-### Push-Based Profiling (Default)
+### Push-Based Profiling with MinIO Storage (Default)
 
 ```
 ┌─────────────────┐
@@ -185,6 +196,13 @@ The Java services profile the following:
     │ Pyroscope  │
     │  (Helm)    │
     └────┬───────┘
+         │ Store profiles
+         ↓
+    ┌────────────┐
+    │   MinIO    │
+    │  (Object   │
+    │  Storage)  │
+    └────┬───────┘
          │
          ↓
     ┌────────────┐
@@ -192,6 +210,13 @@ The Java services profile the following:
     │  (Viewing) │
     └────────────┘
 ```
+
+**MinIO Configuration:**
+- Deployed as part of Pyroscope Helm chart
+- 20Gi persistent storage
+- S3-compatible API for profile storage
+- Automatic bucket creation (`grafana-pyroscope-data`)
+- Provides durable storage for profiling data
 
 ### Optional: Pull-Based with Alloy
 

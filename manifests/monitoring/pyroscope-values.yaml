@@ -81,6 +81,13 @@ minio:
   # MinIO persistence configuration
   persistence:
     size: 20Gi
+    # storageClass: ""  # Use default storage class
+    # storageClass: "local-path"  # For local storage (e.g., K3s, Rancher Desktop)
+    # storageClass: "standard"  # For GKE
+    # storageClass: "gp2"  # For AWS EKS
+    # storageClass: "managed-premium"  # For Azure AKS
+    # If no storage class exists, you can disable persistence:
+    # enabled: false  # Uncomment to disable persistence (not recommended for production)
   # Credentials for MinIO (should match Pyroscope S3 config)
   rootUser: "grafana-pyroscope"
   rootPassword: "supersecret"

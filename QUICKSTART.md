@@ -14,6 +14,13 @@ This implementation adds continuous profiling to all Java services in the train-
 
 ### 1. Install Pyroscope on Kubernetes
 
+**Note**: MinIO requires persistent storage. Ensure your cluster has a storage class:
+```bash
+kubectl get storageclass
+```
+
+If none exists, see troubleshooting section in `manifests/monitoring/PYROSCOPE_README.md`.
+
 ```bash
 cd manifests/monitoring
 ./install_pyroscope.sh
@@ -21,7 +28,7 @@ cd manifests/monitoring
 
 This uses the official Grafana Helm chart to install:
 - Pyroscope deployment in `monitoring` namespace
-- MinIO object storage for persistent profiling data
+- MinIO object storage for persistent profiling data (requires storage class)
 - Service exposed at `http://pyroscope.monitoring.svc.cluster.local:4040`
 
 ### 2. Rebuild the Java Agent Image
@@ -190,6 +197,32 @@ Open http://localhost:4040 and you should see services listed.
    cd manifests/monitoring
    ./install_pyroscope.sh
    ```
+
+### MinIO storage issues
+
+If MinIO pods are pending due to PVC issues:
+
+```bash
+# Check storage classes
+kubectl get storageclass
+
+# If none exist, specify a storage class in pyroscope-values.yaml:
+# minio:
+#   persistence:
+#     storageClass: "local-path"
+
+# Or disable persistence for testing (not for production):
+# minio:
+#   persistence:
+#     enabled: false
+
+# Then upgrade:
+helm upgrade pyroscope grafana/pyroscope \
+  --namespace monitoring \
+  --values manifests/monitoring/pyroscope-values.yaml
+```
+
+See `manifests/monitoring/PYROSCOPE_README.md` for detailed storage troubleshooting.
 
 ### High CPU/memory usage
 

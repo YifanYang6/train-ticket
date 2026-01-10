@@ -14,6 +14,13 @@ The profiling setup uses:
 
 ### Quick Start (Recommended)
 
+**Prerequisites**: Ensure your Kubernetes cluster has a storage class available for MinIO persistence. Check with:
+```bash
+kubectl get storageclass
+```
+
+If no storage class exists, see the [MinIO PersistentVolumeClaim troubleshooting](#minio-persistentvolumeclaim-issues) section.
+
 ```bash
 cd manifests/monitoring
 ./install_pyroscope.sh
@@ -23,6 +30,7 @@ This script will:
 - Add the Grafana Helm repository
 - Install Pyroscope using the official Helm chart
 - Configure it for push-based profiling from Java services
+- Deploy MinIO with persistent storage
 
 ### Manual Installation with Helm
 
@@ -288,6 +296,58 @@ If you enable Alloy in `pyroscope-values.yaml`:
    ```bash
    helm uninstall pyroscope -n monitoring
    ./install_pyroscope.sh
+   ```
+
+### MinIO PersistentVolumeClaim issues
+
+If MinIO pods are stuck in "Pending" state with PVC errors:
+
+1. Check PVC status:
+   ```bash
+   kubectl get pvc -n monitoring
+   kubectl describe pvc -n monitoring
+   ```
+
+2. **No storage class available**: Check available storage classes:
+   ```bash
+   kubectl get storageclass
+   ```
+
+3. **Solutions**:
+
+   **Option 1**: Specify an existing storage class in `pyroscope-values.yaml`:
+   ```yaml
+   minio:
+     persistence:
+       size: 20Gi
+       storageClass: "local-path"  # Or "standard", "gp2", etc.
+   ```
+
+   **Option 2**: Create a local storage class (for development):
+   ```bash
+   kubectl apply -f - <<EOF
+   apiVersion: storage.k8s.io/v1
+   kind: StorageClass
+   metadata:
+     name: local-path
+   provisioner: rancher.io/local-path
+   volumeBindingMode: WaitForFirstConsumer
+   reclaimPolicy: Delete
+   EOF
+   ```
+
+   **Option 3**: Disable MinIO persistence (not recommended for production):
+   ```yaml
+   minio:
+     persistence:
+       enabled: false
+   ```
+
+4. After updating, upgrade the release:
+   ```bash
+   helm upgrade pyroscope grafana/pyroscope \
+     --namespace monitoring \
+     --values pyroscope-values.yaml
    ```
 
 ## Enabling Alloy (Optional)

@@ -80,6 +80,8 @@ minio:
   replicas: 1
   # MinIO persistence configuration
   persistence:
+    enabled: true
+    storageClass: "juicefs-sc"
     size: 20Gi
     # storageClass: ""  # Use default storage class
     # storageClass: "local-path"  # For local storage (e.g., K3s, Rancher Desktop)

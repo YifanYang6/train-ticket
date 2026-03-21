@@ -23,7 +23,7 @@ spec:
       initContainers:
         - name: init-otel-agent
           image: "{{ $root.Values.global.image.repository }}/{{ $root.Values.opentelemetry.image }}"
-          command: ['sh', '-c', 'cp -r /javaagent.jar /otel-agent/otel-agent.jar']
+          command: ['sh', '-c', 'cp /javaagent.jar /otel-agent/otel-agent.jar && cp /pyroscope.jar /otel-agent/pyroscope.jar && cp /pyroscope-otel.jar /otel-agent/pyroscope-otel.jar']
           volumeMounts:
             - name: otel-agent
               mountPath: /otel-agent
@@ -170,12 +170,41 @@ spec:
               value: otlp
             - name: OTEL_EXPORTER_OTLP_SPAN_INSECURE
               value: "true"
+            {{- if $root.Values.pyroscope.enabled }}
+            # Pyroscope profiling configuration
+            - name: PYROSCOPE_APPLICATION_NAME
+              value: "{{ $svc.name }}"
+            - name: PYROSCOPE_FORMAT
+              value: "jfr"
+            - name: PYROSCOPE_PROFILING_INTERVAL
+              value: "{{ $root.Values.pyroscope.profilingInterval }}"
+            - name: PYROSCOPE_PROFILER_EVENT
+              value: "{{ $root.Values.pyroscope.profilerEvent }}"
+            - name: PYROSCOPE_PROFILER_LOCK
+              value: "{{ $root.Values.pyroscope.profilerLock }}"
+            - name: PYROSCOPE_PROFILER_ALLOC
+              value: "{{ $root.Values.pyroscope.profilerAlloc }}"
+            - name: PYROSCOPE_UPLOAD_INTERVAL
+              value: "{{ $root.Values.pyroscope.uploadInterval }}"
+            - name: PYROSCOPE_LOG_LEVEL
+              value: "{{ $root.Values.pyroscope.logLevel }}"
+            - name: PYROSCOPE_SERVER_ADDRESS
+              value: "{{ $root.Values.pyroscope.serverAddress }}"
+            - name: OTEL_JAVAAGENT_EXTENSIONS
+              value: "/otel-agent/pyroscope-otel.jar"
+            - name: OTEL_PYROSCOPE_ADD_PROFILE_URL
+              value: "{{ $root.Values.pyroscope.addProfileUrl }}"
+            - name: OTEL_PYROSCOPE_ADD_PROFILE_BASELINE_URL
+              value: "{{ $root.Values.pyroscope.addProfileBaselineUrl }}"
+            - name: OTEL_PYROSCOPE_START_PROFILING
+              value: "{{ $root.Values.pyroscope.startProfiling }}"
+            {{- end }}
             {{- if $root.Values.global.otelcollector }}
             - name: JAVA_TOOL_OPTIONS
-              value: "-javaagent:/otel-agent/otel-agent.jar -Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true -Xmx2048m"
+              value: "-javaagent:/otel-agent/pyroscope.jar -javaagent:/otel-agent/otel-agent.jar -Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true -Xmx2048m"
             {{- else }}
             - name: JAVA_TOOL_OPTIONS
-              value: "-javaagent:/otel-agent/otel-agent.jar -Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true -Xmx2048m -Xms2048m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:InitiatingHeapOccupancyPercent=35 -XX:G1ReservePercent=15 -XX:+ParallelRefProcEnabled -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump.hprof -XX:NativeMemoryTracking=summary -XX:+DisableExplicitGC"
+              value: "-javaagent:/otel-agent/pyroscope.jar -javaagent:/otel-agent/otel-agent.jar -Dotel.instrumentation.common.experimental.controller-telemetry.enabled=true -Xmx2048m -Xms2048m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:InitiatingHeapOccupancyPercent=35 -XX:G1ReservePercent=15 -XX:+ParallelRefProcEnabled -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump.hprof -XX:NativeMemoryTracking=summary -XX:+DisableExplicitGC"
             {{- end }}
             {{- end }}
             {{- end }}

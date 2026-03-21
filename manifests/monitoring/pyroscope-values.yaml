@@ -1,0 +1,112 @@
+# Pyroscope Helm Chart Values
+# Reference: https://github.com/grafana/pyroscope/tree/main/operations/pyroscope/helm/pyroscope
+
+# Pyroscope server configuration
+pyroscope:
+  # Use single-binary deployment mode (simpler for getting started)
+  replicaCount: 1
+  
+  # Resource limits
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 2Gi
+      cpu: 1000m
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 4040
+  
+  # Disable local persistence (using MinIO object storage instead)
+  persistence:
+    enabled: false
+  
+  # Configure object storage with MinIO
+  structuredConfig:
+    storage:
+      backend: s3
+      s3:
+        endpoint: "pyroscope-minio.monitoring.svc.cluster.local:9000"
+        bucket_name: "grafana-pyroscope-data"
+        access_key_id: "grafana-pyroscope"
+        secret_access_key: "supersecret"
+        insecure: true
+  
+  # Extra configuration for debugging
+  extraArgs:
+    "log.level": "info"
+
+# Disable Alloy by default (using push-based profiling with Java agents)
+# Enable this if you want auto-discovery and pull-based profiling
+alloy:
+  enabled: false
+  controller:
+    type: "daemonset"  # Use DaemonSet for node-level process discovery
+    replicas: 1
+  alloy:
+    stabilityLevel: "public-preview"
+    configMap:
+      create: true
+    clustering:
+      enabled: true
+    # Security context for process discovery
+    securityContext:
+      privileged: true
+      runAsUser: 0
+      runAsGroup: 0
+      capabilities:
+        add:
+          - SYS_PTRACE
+          - SYS_ADMIN
+          - SYS_RESOURCE
+          - PERFMON
+    # Enable hostPID for cross-pod process discovery
+    extraPorts:
+      - name: "http-metrics"
+        port: 12345
+        targetPort: 12345
+        protocol: "TCP"
+
+# Disable agent (we use alloy instead)
+agent:
+  enabled: false
+
+# Enable MinIO for object storage
+minio:
+  enabled: true
+  replicas: 1
+  # MinIO persistence configuration
+  persistence:
+    enabled: true
+    storageClass: "juicefs-sc"
+    size: 20Gi
+    # storageClass: ""  # Use default storage class
+    # storageClass: "local-path"  # For local storage (e.g., K3s, Rancher Desktop)
+    # storageClass: "standard"  # For GKE
+    # storageClass: "gp2"  # For AWS EKS
+    # storageClass: "managed-premium"  # For Azure AKS
+    # If no storage class exists, you can disable persistence:
+    # enabled: false  # Uncomment to disable persistence (not recommended for production)
+  # Credentials for MinIO (should match Pyroscope S3 config)
+  rootUser: "grafana-pyroscope"
+  rootPassword: "supersecret"
+  # Resource limits for MinIO
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  # MinIO buckets configuration
+  buckets:
+    - name: grafana-pyroscope-data
+      policy: none
+      purge: false
+
+# Service monitor for Prometheus integration (optional)
+serviceMonitor:
+  enabled: false

@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-pyroscope-provisioning
+  namespace: monitoring
+data:
+  pyroscope-datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - uid: pyroscope
+        type: grafana-pyroscope-datasource
+        name: Pyroscope
+        url: http://pyroscope.monitoring.svc.cluster.local:4040
+        jsonData:
+          keepCookies: []
+        access: proxy
+        isDefault: false
+  pyroscope-plugin.yaml: |
+    apiVersion: 1
+    apps:
+      - type: grafana-pyroscope-app
+        jsonData:
+          backendUrl: http://pyroscope.monitoring.svc.cluster.local:4040
